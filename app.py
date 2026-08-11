@@ -63,11 +63,25 @@ def guardar_datos(archivo, df):
     df.to_csv(os.path.join(directorio_actual, archivo), index=False)
 
 def consultar_gemini(prompt, modelo_nombre=None, imagen=None):
-    if not modelo_nombre:
-        modelo_nombre = "models/gemini-1.5-flash"
-    genai.configure(api_key=st.session_state["api_key_activa"])
-    model = genai.GenerativeModel(modelo_nombre)
-    return model.generate_content([prompt, imagen]) if imagen else model.generate_content(prompt)
+    """Consulta segura a la API de Gemini con manejo de errores de autenticación."""
+    try:
+        api_key = st.session_state.get("api_key_activa", "").strip()
+        if not api_key:
+            st.error("⚠️ No hay una clave API de Gemini configurada.")
+            return None
+            
+        if not modelo_nombre:
+            modelo_nombre = "models/gemini-1.5-flash"
+            
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(modelo_nombre)
+        
+        if imagen:
+            return model.generate_content([prompt, imagen])
+        return model.generate_content(prompt)
+    except Exception as e:
+        st.error(f"⚠️ Error al consultar la API de Gemini: {e}")
+        return None
 
 def buscar_en_internet(query, max_resultados=5):
     try:
@@ -78,7 +92,7 @@ def buscar_en_internet(query, max_resultados=5):
         return f"Error en búsqueda web: {e}"
 
 def obtener_datos_agent_reach(canal: str, objetivo: str) -> str:
-    """Invoca la CLI de Agent-Reach desde Python para extraer datos en vivo de YouTube o RSS."""
+    """Invoca la CLI de Agent-Reach desde Python para extraer datos en vivo."""
     if not objetivo:
         return "No se proporcionó URL o término de búsqueda para Agent-Reach."
     try:
@@ -96,6 +110,8 @@ def obtener_datos_agent_reach(canal: str, objetivo: str) -> str:
         else:
             out_log = resultado.stdout.strip() or resultado.stderr.strip()
             return f"[Agent-Reach Log] {out_log if out_log else 'Ejecutado sin respuesta de texto directo.'}"
+    except FileNotFoundError:
+        return "[Agent-Reach Error] El ejecutable 'agent-reach' no está instalado en el servidor."
     except subprocess.TimeoutExpired:
         return "[Agent-Reach Error] Tiempo de espera agotado al consultar la fuente."
     except Exception as e:
@@ -146,7 +162,11 @@ def generar_pdf_cotizacion(empresa, atencion_a, tipo_trabajo, desglose, fee_tota
     pdf.set_font("Arial", "I", 8)
     pdf.cell(0, 5, sanitizar_texto_pdf("Vyntara Digital | Transformando Marcas con Estrategia e Inteligencia Artificial"), 0, 1, "C")
 
-    return pdf.output(dest='S').encode('latin-1', 'ignore')
+    # Retorno seguro compatible con fpdf y fpdf2
+    salida = pdf.output()
+    if isinstance(salida, str):
+        return salida.encode('latin-1', 'ignore')
+    return bytes(salida)
 
 def crear_link_whatsapp(numero, mensaje):
     num_limpio = "".join(filter(str.isdigit, str(numero)))
@@ -403,19 +423,21 @@ elif espacio_trabajo == "🏢 Gestión de Clientes (Operación Individual)":
                     Devuelve SOLO un JSON estricto con la clave "publicaciones":
                     [{{"Red_Social": "Instagram", "Fecha_Publicacion": "{f_in}", "Tipo_Contenido": "Reel", "Detalle_Visual_Diseno": "Texto overlay...", "Copy_Texto": "Copy completo...", "Hashtags": "#Nicho", "Publico_Objetivo": "B2B", "Tipo_Pauta": "Tráfico", "Inversion_Pauta_COP": 50000}}]
                     """
-                    try:
-                        raw = consultar_gemini(prompt, modelo_seleccionado).text.replace("```json", "").replace("```", "").strip()
-                        posts = json.loads(raw).get("publicaciones", [])
-                        df_new = pd.DataFrame(posts)
-                        df_new["Cliente"] = st.session_state["cliente_activo"]
-                        df_new["Estado"] = "💡 Idea"
-                        df_new["ID"] = [f"POST-{len(df_parrilla)+i+1}" for i in range(len(df_new))]
-                        df_parrilla = pd.concat([df_parrilla, df_new[columnas_parrilla]], ignore_index=True)
-                        guardar_datos("parrilla_contenidos.csv", df_parrilla)
-                        st.success("¡Parrilla generada e integrada!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error generando contenido: {e}")
+                    res = consultar_gemini(prompt, modelo_seleccionado)
+                    if res and hasattr(res, "text"):
+                        try:
+                            raw = res.text.replace("```json", "").replace("```", "").strip()
+                            posts = json.loads(raw).get("publicaciones", [])
+                            df_new = pd.DataFrame(posts)
+                            df_new["Cliente"] = st.session_state["cliente_activo"]
+                            df_new["Estado"] = "💡 Idea"
+                            df_new["ID"] = [f"POST-{len(df_parrilla)+i+1}" for i in range(len(df_new))]
+                            df_parrilla = pd.concat([df_parrilla, df_new[columnas_parrilla]], ignore_index=True)
+                            guardar_datos("parrilla_contenidos.csv", df_parrilla)
+                            st.success("¡Parrilla generada e integrada!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error procesando la respuesta de la IA: {e}")
 
         with tab_c2:
             st.subheader("Studio de Prompts para Imagen e Inteligencia Visual")
@@ -429,8 +451,9 @@ elif espacio_trabajo == "🏢 Gestión de Clientes (Operación Individual)":
                 with st.spinner("Construyendo prompt técnico..."):
                     ar_code = "--ar 9:16" if "9:16" in aspect_ratio else ("--ar 16:9" if "16:9" in aspect_ratio else "--ar 1:1")
                     prompt_req = f"Genera un prompt hiperdetallado en INGLÉS optimizado para {engine_ia}. Concepto: {idea_img}, Estilo: {estilo_art}. Incluye detalles cinematográficos, tipo de lente (85mm f/1.8), renderizado y parámetros de composición. Al final añade los parámetros: {ar_code}"
-                    res_p = consultar_gemini(prompt_req, modelo_seleccionado).text
-                    st.code(res_p, language="markdown")
+                    res_p = consultar_gemini(prompt_req, modelo_seleccionado)
+                    if res_p and hasattr(res_p, "text"):
+                        st.code(res_p.text, language="markdown")
 
         with tab_c3:
             st.subheader("Tablero Kanban de Estado de Producción")
@@ -460,8 +483,9 @@ elif espacio_trabajo == "🏢 Gestión de Clientes (Operación Individual)":
             prod = st.text_input("Producto o Oferta Central:", f"Oferta principal de {st.session_state['cliente_activo']}")
             if st.button("🚀 Redactar Guión Técnico Completo", type="primary"):
                 with st.spinner("Escribiendo guión estructurado..."):
-                    res = consultar_gemini(f"Crea un guión táctico de Reel/TikTok para {prod} usando el gancho: {hook}. Incluye indicación visual y locución.", modelo_seleccionado).text
-                    st.markdown(res)
+                    res = consultar_gemini(f"Crea un guión táctico de Reel/TikTok para {prod} usando el gancho: {hook}. Incluye indicación visual y locución.", modelo_seleccionado)
+                    if res and hasattr(res, "text"):
+                        st.markdown(res.text)
 
         with tab_c5:
             st.subheader("Tabla Editora Directa de Parrilla")
@@ -664,19 +688,18 @@ elif espacio_trabajo == "🔍 Módulo C: Auditoría & Briefing Express (IA + Age
                     - 3 a 5 acciones de implementación prioritaria para los primeros 30 días.
                     """
                     
-                    try:
-                        res_auditoria = consultar_gemini(prompt_auditoria, modelo_seleccionado).text
+                    res_auditoria = consultar_gemini(prompt_auditoria, modelo_seleccionado)
+                    if res_auditoria and hasattr(res_auditoria, "text"):
+                        texto_res = res_auditoria.text
                         st.markdown("---")
-                        st.markdown(res_auditoria)
+                        st.markdown(texto_res)
                         
                         st.download_button(
                             label="📥 Descargar Reporte de Auditoría (.md)",
-                            data=res_auditoria,
+                            data=texto_res,
                             file_name=f"Auditoria_{datos_brief_cli['Cliente']}.md",
                             mime="text/markdown"
                         )
-                    except Exception as e:
-                        st.error(f"Error generando la auditoría: {e}")
 
     with tab_historial:
         st.subheader("Base de Datos de Briefings Registrados")
@@ -704,19 +727,21 @@ elif espacio_trabajo == "🔥 Agencia Vyntara (Estrategia In-House)":
         if st.button("✨ Generar Contenido para Vyntara", type="primary"):
             with st.spinner("Creando posts para la marca propia..."):
                 prompt = f"Genera 3 posts de alto valor B2B para Agencia Vyntara enfocados en {objetivo_v} para {redes_v}. Devuelve JSON con clave 'publicaciones'."
-                try:
-                    raw = consultar_gemini(prompt, modelo_seleccionado).text.replace("```json", "").replace("```", "").strip()
-                    posts = json.loads(raw).get("publicaciones", [])
-                    df_new = pd.DataFrame(posts)
-                    df_new["Cliente"] = "Vyntara Digital"
-                    df_new["Estado"] = "💡 Idea"
-                    df_new["ID"] = [f"VYN-{len(df_parrilla)+i+1}" for i in range(len(df_new))]
-                    df_parrilla = pd.concat([df_parrilla, df_new[columnas_parrilla]], ignore_index=True)
-                    guardar_datos("parrilla_contenidos.csv", df_parrilla)
-                    st.success("¡Contenido guardado en la parrilla propia!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
+                res = consultar_gemini(prompt, modelo_seleccionado)
+                if res and hasattr(res, "text"):
+                    try:
+                        raw = res.text.replace("```json", "").replace("```", "").strip()
+                        posts = json.loads(raw).get("publicaciones", [])
+                        df_new = pd.DataFrame(posts)
+                        df_new["Cliente"] = "Vyntara Digital"
+                        df_new["Estado"] = "💡 Idea"
+                        df_new["ID"] = [f"VYN-{len(df_parrilla)+i+1}" for i in range(len(df_new))]
+                        df_parrilla = pd.concat([df_parrilla, df_new[columnas_parrilla]], ignore_index=True)
+                        guardar_datos("parrilla_contenidos.csv", df_parrilla)
+                        st.success("¡Contenido guardado en la parrilla propia!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al procesar JSON: {e}")
 
         st.markdown("---")
         st.subheader("Parrilla Vigente de Vyntara Digital")
@@ -727,8 +752,9 @@ elif espacio_trabajo == "🔥 Agencia Vyntara (Estrategia In-House)":
     elif menu_vyntara == "💡 [Creatividad] Hooks & Copys Disruptivos":
         st.subheader("Laboratorio de Ideas & Ganchos B2B")
         if st.button("🚀 Generar 3 Ganchos Disruptivos para Vyntara"):
-            res = consultar_gemini("Genera 3 hooks tácticos de 3 segundos para vender servicios de marketing de Vyntara Digital.", modelo_seleccionado).text
-            st.markdown(res)
+            res = consultar_gemini("Genera 3 hooks tácticos de 3 segundos para vender servicios de marketing de Vyntara Digital.", modelo_seleccionado)
+            if res and hasattr(res, "text"):
+                st.markdown(res.text)
 
     elif menu_vyntara == "🎯 [Pipeline Leads] CRM Prospectos B2B":
         st.subheader("Pipeline de Ventas y Prospectos Comerciales")
