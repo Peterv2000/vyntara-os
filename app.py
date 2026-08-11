@@ -12,7 +12,7 @@ import zipfile
 import io
 
 # ==========================================
-# ⚙️ CONFIGURACIÓN Y ESTILOS
+# ⚙️ CONFIGURACIÓN Y ESTILOS - VYNTARA
 # ==========================================
 API_KEY_DEFAULT = "AQ.Ab8RN6LmCZhuxI6o37aBi4oMhQ2jZK74mBUrZn68OFtoMuoKog" 
 NOMBRE_LOGO = "logo.jpg" 
