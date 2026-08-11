@@ -3,4 +3,4 @@ google-generativeai
 pillow
 duckduckgo-search
 fpdf2
-streamlit-gsheets
+st-gsheets-connection
