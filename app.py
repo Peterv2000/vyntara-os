@@ -16,16 +16,30 @@ import subprocess
 # ==========================================
 # ⚙️ CONFIGURACIÓN Y ESTILOS - VYNTARA OS
 # ==========================================
+
+# --- CONFIGURACIÓN DE API KEY INICIAL ---
 try:
     API_KEY_DEFAULT = st.secrets.get("GEMINI_API_KEY", "")
 except Exception:
     API_KEY_DEFAULT = ""
 
-NOMBRE_LOGO = "logo.jpg" 
+NOMBRE_LOGO = "logo.jpg"
 directorio_actual = os.getcwd()
 ruta_logo = os.path.join(directorio_actual, NOMBRE_LOGO)
 
 st.set_page_config(page_title="Vyntara OS | Agency Management System", page_icon="✨", layout="wide")
+
+# --- LEER CLAVE GUARDADA AL CARGAR LA APP ---
+if "api_key_activa" not in st.session_state or not st.session_state["api_key_activa"]:
+    if os.path.exists("api_key.txt"):
+        try:
+            with open("api_key.txt", "r") as f:
+                key_guardada = f.read().strip()
+                st.session_state["api_key_activa"] = key_guardada if key_guardada else API_KEY_DEFAULT
+        except Exception:
+            st.session_state["api_key_activa"] = API_KEY_DEFAULT
+    else:
+        st.session_state["api_key_activa"] = API_KEY_DEFAULT
 
 # CSS Avanzado para Interfaz Profesional (SaaS)
 st.markdown("""
@@ -909,7 +923,7 @@ elif espacio_trabajo == "🔍 Módulo C: Auditoría & Briefing Express":
                 st.success("✅ ¡Base de datos de auditorías guardada y actualizada correctamente!")
             except Exception as e:
                 st.error(f"❌ Error al guardar el archivo: {e}")
-                                                
+
 # ==========================================
 # 3. AGENCIA VYNTARA (ESTRATEGIA IN-HOUSE)
 # ==========================================
@@ -1058,11 +1072,53 @@ elif espacio_trabajo == "👁️ Portal Cliente (Aprobación Externa)":
 # ==========================================
 elif espacio_trabajo == "⚙️ Configuración Global & Respaldos":
     st.title("⚙️ Sistema & Backups")
-    st.text_input("Clave API Gemini:", value=st.session_state.get("api_key_activa", ""), type="password", key="api_settings")
+
+    # --- SECCIÓN 1: GUARDA Y CONEXIÓN DE API KEY ---
+    st.subheader("🔑 Configuración de Clave API Gemini")
+    st.caption("Ingresa tu clave de Google AI Studio. Se guardará de forma segura en tu equipo.")
+
+    key_actual = st.session_state.get("api_key_activa", "")
+
+    nueva_key = st.text_input(
+        "Clave API Gemini:",
+        value=key_actual,
+        type="password",
+        help="Pega aquí tu clave API que empieza por AIzaSy..."
+    )
+
+    if st.button("💾 Guardar y Conectar API Key"):
+        if nueva_key.strip():
+            st.session_state["api_key_activa"] = nueva_key.strip()
+            # Guardar físicamente en el disco duro
+            with open("api_key.txt", "w") as f:
+                f.write(nueva_key.strip())
+            st.success("✅ ¡API Key guardada y conectada con éxito!")
+            st.rerun()  # Recarga la página para activar el indicador verde inmediatamente
+        else:
+            st.warning("⚠️ La clave API no puede estar vacía.")
+
+    st.divider()
+
+    # --- SECCIÓN 2: GENERACIÓN DE RESPALDOS ---
+    st.subheader("📦 Respaldos de Información")
+    st.caption("Genera una copia de seguridad comprimida de todas las bases de datos del sistema.")
+
     if st.button("📦 Generar Backup ZIP", type="primary"):
         buffer = io.BytesIO()
+        archivos_sistema = [
+            "clientes.csv", "finanzas.csv", "parrilla_contenidos.csv", 
+            "ads_analytics.csv", "briefings.csv", "api_key.txt"
+        ]
+        
         with zipfile.ZipFile(buffer, "w") as zf:
-            for arc in ["clientes.csv", "finanzas.csv", "parrilla_contenidos.csv", "ads_analytics.csv", "sla_entregables.csv", "vyntara_inhouse.csv", "brandkits.csv", "vyntara_leads.csv", "briefings_clientes.csv"]:
-                if os.path.exists(os.path.join(directorio_actual, arc)):
-                    zf.write(os.path.join(directorio_actual, arc), arcname=arc)
-        st.download_button("💾 Descargar Sistema Completo (ZIP)", data=buffer.getvalue(), file_name="Backup.zip", mime="application/zip")
+            for arc in archivos_sistema:
+                ruta = os.path.join(directorio_actual, arc)
+                if os.path.exists(ruta):
+                    zf.write(ruta, arcname=arc)
+
+        st.download_button(
+            label="💾 Descargar Sistema Completo (ZIP)",
+            data=buffer.getvalue(),
+            file_name=f"Backup_Vyntara_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.zip",
+            mime="application/zip"
+        )
