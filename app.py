@@ -1064,9 +1064,190 @@ elif espacio_trabajo == "📄 Cotizador & Generador de PDF":
 # 5. PORTAL CLIENTE
 # ==========================================
 elif espacio_trabajo == "👁️ Portal Cliente (Aprobación Externa)":
-    st.title("👁️ Portal Cliente")
-    st.info("Vista simplificada de aprobación. Los clientes solo verán los posts marcados para revisión y podrán aprobarlos aquí, lo cual actualizará el estado a '✅ Programado' en la matriz general.")
+    st.title("👁️ Portal del Cliente")
 
+    # Cargar lista de clientes registrados
+    lista_clientes = []
+    if "df_clientes" in locals() and not df_clientes.empty:
+        lista_clientes = df_clientes["Empresa"].tolist() if "Empresa" in df_clientes.columns else df_clientes["Nombre"].tolist()
+
+    if not lista_clientes:
+        st.info("ℹ️ No hay clientes activos registrados en el CRM para mostrar en el portal.")
+    else:
+        # --- CONTROL DE ACCESO PRIVADO POR URL ---
+        params = st.query_params
+        cliente_url = params.get("cliente", None)
+
+        # Si el cliente entra mediante su link único (?cliente=Nombre)
+        if cliente_url and cliente_url in lista_clientes:
+            cliente_sel = cliente_url
+            st.success(f"🏢 Bienvenido/a al Portal de **{cliente_sel}**")
+            st.caption("Panel de control exclusivo para revisión de contenidos, reportes y estados de cuenta.")
+        else:
+            # Modo Administración (Vista para la Agencia)
+            st.subheader("⚙️ Panel de Administración del Portal")
+            col_admin1, col_admin2 = st.columns([2, 1])
+            
+            with col_admin1:
+                cliente_sel = st.selectbox("📌 Selecciona un cliente para previsualizar su portal:", lista_clientes)
+            
+            with col_admin2:
+                # 1. Reemplazar espacios para formar el parámetro de la URL
+                cliente_encode = cliente_sel.replace(" ", "%20")
+                
+                # 2. Reemplaza "TU-APP-REAL.streamlit.app" con la URL exactita de tu navegador
+                # Ejemplo: https://vyntara-os.streamlit.app
+                url_base = "https://TU-APP-REAL.streamlit.app" 
+                
+                link_cliente = f"{url_base}/?cliente={cliente_encode}"
+                
+                st.markdown("**🔗 Enlace Privado para enviar al cliente:**")
+                st.code(link_cliente, language="text")
+                st.caption("Copia este enlace y envíaselo directamente por WhatsApp o correo.")
+
+        st.divider()
+
+        # Pestañas de Navegación del Cliente
+        tab_p1, tab_p2, tab_p3, tab_p4 = st.tabs([
+            "📅 Parrilla & Aprobación",
+            "📊 Métricas & Analytics",
+            "🔍 Auditorías & Estrategia",
+            "💳 Estado de Cuenta"
+        ])
+
+        # ----------------------------------------------------
+        # TAB 1: PARRILLA DE CONTENIDOS Y APROBACIÓN
+        # ----------------------------------------------------
+        with tab_p1:
+            st.subheader("📅 Revisión y Aprobación de Publicaciones")
+            st.caption("Aprueba las publicaciones o solicita ajustes directamente al equipo de la agencia.")
+
+            df_parrilla = pd.DataFrame()
+            if os.path.exists("parrilla_contenidos.csv"):
+                try:
+                    df_parrilla = pd.read_csv("parrilla_contenidos.csv")
+                except Exception:
+                    df_parrilla = pd.DataFrame()
+
+            if not df_parrilla.empty and "Cliente" in df_parrilla.columns:
+                parrilla_cliente = df_parrilla[df_parrilla["Cliente"] == cliente_sel]
+            else:
+                parrilla_cliente = pd.DataFrame()
+
+            if parrilla_cliente.empty:
+                st.warning(f"📌 No hay publicaciones registradas pendientes para **{cliente_sel}**.")
+            else:
+                for idx, row in parrilla_cliente.iterrows():
+                    estado_actual = row.get("Estado", "En Revisión")
+                    color_badge = "🔵" if "Revisión" in estado_actual else ("🟢" if "Aprobado" in estado_actual or "Programado" in estado_actual else "🟠")
+
+                    with st.expander(f"{color_badge} Post #{idx+1} | {row.get('Red_Social', 'Red Social')} - {row.get('Fecha', 'Sin fecha')} [{estado_actual}]", expanded=("Revisión" in estado_actual)):
+                        c_p1, c_p2 = st.columns([2, 1])
+                        
+                        with c_p1:
+                            st.markdown(f"**🎯 Pilar de Contenido:** {row.get('Pilar', 'General')}")
+                            st.markdown(f"**🎨 Formato:** {row.get('Formato', 'Post / Reel')}")
+                            st.text_area("📝 Copy / Texto propuesta:", value=str(row.get("Copy", "")), height=120, disabled=True, key=f"copy_{idx}")
+                            
+                            if "Notas_Cliente" in row and str(row["Notas_Cliente"]) not in ["nan", "None", ""]:
+                                st.info(f"💬 **Último comentario registrado:** {row['Notas_Cliente']}")
+
+                        with c_p2:
+                            st.markdown("### 🛠️ Acción de Aprobación")
+                            
+                            if st.button("✅ Aprobar Publicación", key=f"btn_app_{idx}", type="primary"):
+                                df_parrilla.at[idx, "Estado"] = "✅ Aprobado / Programado"
+                                df_parrilla.to_csv("parrilla_contenidos.csv", index=False)
+                                st.success("🎉 ¡Publicación aprobada!")
+                                st.rerun()
+
+                            st.markdown("---")
+                            
+                            comentario_cliente = st.text_input("💬 Comentarios / Sugerencias:", key=f"input_obs_{idx}")
+                            if st.button("💬 Solicitar Ajustes", key=f"btn_corr_{idx}"):
+                                if comentario_cliente.strip():
+                                    df_parrilla.at[idx, "Estado"] = "🟠 Cambios Solicitados"
+                                    df_parrilla.at[idx, "Notas_Cliente"] = comentario_cliente.strip()
+                                    df_parrilla.to_csv("parrilla_contenidos.csv", index=False)
+                                    st.warning("📩 Sugerencias enviadas al equipo.")
+                                    st.rerun()
+                                else:
+                                    st.error("Escribe un comentario antes de solicitar ajustes.")
+
+        # ----------------------------------------------------
+        # TAB 2: MÉTRICAS Y ANALYTICS (SOLO LECTURA)
+        # ----------------------------------------------------
+        with tab_p2:
+            st.subheader("📊 Métricas de Rendimiento & Campañas")
+            
+            df_ads = pd.DataFrame()
+            if os.path.exists("ads_analytics.csv"):
+                try:
+                    df_ads = pd.read_csv("ads_analytics.csv")
+                except Exception:
+                    df_ads = pd.DataFrame()
+
+            if not df_ads.empty and "Cliente" in df_ads.columns:
+                ads_cliente = df_ads[df_ads["Cliente"] == cliente_sel]
+            else:
+                ads_cliente = pd.DataFrame()
+
+            if ads_cliente.empty:
+                st.info("📈 No hay reportes de analítica registrados para esta marca actualmente.")
+            else:
+                st.dataframe(ads_cliente, use_container_width=True)
+
+        # ----------------------------------------------------
+        # TAB 3: STRATEGIC BRIEFING & AUDITORÍAS (SOLO LECTURA)
+        # ----------------------------------------------------
+        with tab_p3:
+            st.subheader("🔍 Diagnóstico & Matriz Estratégica")
+
+            if "df_briefings" in st.session_state and not st.session_state["df_briefings"].empty:
+                briefs_cliente = st.session_state["df_briefings"][st.session_state["df_briefings"]["Cliente"] == cliente_sel]
+                
+                if briefs_cliente.empty:
+                    st.info("📄 No se encontraron auditorías registradas para esta marca.")
+                else:
+                    for _, b_row in briefs_cliente.iterrows():
+                        with st.expander(f"📌 Auditoría / Briefing - {b_row.get('Tipo_Auditoria', 'Estratégica')} ({b_row.get('Fecha', 'Fecha N/A')})"):
+                            st.write(f"**Sector:** {b_row.get('Sector', 'N/A')}")
+                            st.write(f"**Objetivos:** {b_row.get('Objetivos', 'N/A')}")
+                            st.write(f"**Público Objetivo:** {b_row.get('Audiencia', 'N/A')}")
+                            st.write(f"**Tono:** {b_row.get('Tono', 'N/A')}")
+                            st.markdown("---")
+                            st.markdown(f"**Diagnóstico:** {b_row.get('Resumen_Diagnostico', 'Sin detalles')}")
+            else:
+                st.info("📄 No hay base de datos de briefing disponible.")
+
+        # ----------------------------------------------------
+        # TAB 4: ESTADO DE CUENTA (SOLO LECTURA)
+        # ----------------------------------------------------
+        with tab_p4:
+            st.subheader("💳 Estado de Cuenta & Facturación")
+
+            df_fin = pd.DataFrame()
+            if os.path.exists("finanzas.csv"):
+                try:
+                    df_fin = pd.read_csv("finanzas.csv")
+                except Exception:
+                    df_fin = pd.DataFrame()
+
+            if not df_fin.empty and "Cliente" in df_fin.columns:
+                fin_cliente = df_fin[df_fin["Cliente"] == cliente_sel]
+            else:
+                fin_cliente = pd.DataFrame()
+
+            if fin_cliente.empty:
+                st.info("💵 No hay cobros o facturas registradas actualmente para este cliente.")
+            else:
+                if "Monto" in fin_cliente.columns:
+                    total_facturado = fin_cliente["Monto"].sum() if not fin_cliente["Monto"].empty else 0
+                    st.metric("Monto Total Servicios", f"${total_facturado:,.2f}")
+
+                st.markdown("### 📋 Historial de Pagos y Facturas")
+                st.dataframe(fin_cliente, use_container_width=True)
+                
 # ==========================================
 # 6. CONFIGURACIÓN Y BACKUPS
 # ==========================================
