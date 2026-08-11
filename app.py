@@ -148,13 +148,24 @@ if os.path.exists(ruta_logo):
         pass
 
 modelo_seleccionado = None
-if st.session_state["api_key_activa"]:
+if st.session_state.get("api_key_activa"):
+    api_key_limpia = str(st.session_state["api_key_activa"]).strip()
     try:
-        genai.configure(api_key=st.session_state["api_key_activa"])
-        modelos = [m.name for m in genai.list_models() if 'gemini' in m.name and 'generateContent' in m.supported_generation_methods]
-        modelo_seleccionado = st.sidebar.selectbox("🤖 Modelo IA Activo", modelos if modelos else ["gemini-1.5-flash", "gemini-1.5-pro"])
-    except:
-        st.sidebar.error("❌ Clave API no válida")
+        genai.configure(api_key=api_key_limpia)
+        
+        # Intentar listar los modelos, si falla se usan los modelos por defecto
+        try:
+            modelos = [m.name for m in genai.list_models() if 'gemini' in m.name and 'generateContent' in m.supported_generation_methods]
+        except Exception:
+            modelos = ["models/gemini-1.5-flash", "models/gemini-1.5-pro", "models/gemini-2.0-flash"]
+            
+        if not modelos:
+            modelos = ["models/gemini-1.5-flash", "models/gemini-1.5-pro"]
+            
+        modelo_seleccionado = st.sidebar.selectbox("🤖 Modelo IA Activo", modelos)
+        st.sidebar.success("✅ Conectado a Gemini")
+    except Exception as e:
+        st.sidebar.error(f"❌ Error de conexión: {e}")
 
 st.sidebar.markdown("---")
 
