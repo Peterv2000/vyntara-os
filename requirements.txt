@@ -1,0 +1,7 @@
+streamlit
+pandas
+google-generativeai
+Pillow
+duckduckgo-search
+fpdf2
+streamlit-gsheets
