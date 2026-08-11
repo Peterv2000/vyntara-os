@@ -14,7 +14,7 @@ import io
 # ==========================================
 # ⚙️ CONFIGURACIÓN Y ESTILOS - VYNTARA
 # ==========================================
-API_KEY_DEFAULT = "AQ.Ab8RN6LmCZhuxI6o37aBi4oMhQ2jZK74mBUrZn68OFtoMuoKog" 
+API_KEY_DEFAULT = st.secrets.get("AQ.Ab8RN6LmCZhuxI6o37aBi4oMhQ2jZK74mBUrZn68OFtoMuoKog","") 
 NOMBRE_LOGO = "logo.jpg" 
 
 directorio_actual = os.getcwd()
