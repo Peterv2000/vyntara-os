@@ -10,13 +10,17 @@ from fpdf import FPDF
 import urllib.parse
 import zipfile
 import io
+import subprocess
 
 # ==========================================
-# ⚙️ CONFIGURACIÓN Y ESTILOS - VYNTARA
+# ⚙️ CONFIGURACIÓN Y ESTILOS - VYNTARA OS
 # ==========================================
-API_KEY_DEFAULT = st.secrets.get("AQ.Ab8RN6LmCZhuxI6o37aBi4oMhQ2jZK74mBUrZn68OFtoMuoKog","") 
+try:
+    API_KEY_DEFAULT = st.secrets.get("GEMINI_API_KEY", "")
+except Exception:
+    API_KEY_DEFAULT = ""
+
 NOMBRE_LOGO = "logo.jpg" 
-
 directorio_actual = os.getcwd()
 ruta_logo = os.path.join(directorio_actual, NOMBRE_LOGO)
 
@@ -42,7 +46,7 @@ if "api_key_activa" not in st.session_state:
 if "redes_disponibles" not in st.session_state:
     st.session_state["redes_disponibles"] = ["Instagram", "TikTok", "Facebook", "LinkedIn", "YouTube", "Threads", "X/Twitter"]
 
-# Funciones de Soporte
+# Funciones de Soporte Generales
 def cargar_datos(archivo, columnas):
     ruta = os.path.join(directorio_actual, archivo)
     if not os.path.exists(ruta):
@@ -58,7 +62,9 @@ def cargar_datos(archivo, columnas):
 def guardar_datos(archivo, df):
     df.to_csv(os.path.join(directorio_actual, archivo), index=False)
 
-def consultar_gemini(prompt, modelo_nombre, imagen=None):
+def consultar_gemini(prompt, modelo_nombre=None, imagen=None):
+    if not modelo_nombre:
+        modelo_nombre = "models/gemini-1.5-flash"
     genai.configure(api_key=st.session_state["api_key_activa"])
     model = genai.GenerativeModel(modelo_nombre)
     return model.generate_content([prompt, imagen]) if imagen else model.generate_content(prompt)
@@ -70,6 +76,30 @@ def buscar_en_internet(query, max_resultados=5):
             return "".join([f"Título: {r['title']}\nResumen: {r['body']}\n\n" for r in resultados])
     except Exception as e:
         return f"Error en búsqueda web: {e}"
+
+def obtener_datos_agent_reach(canal: str, objetivo: str) -> str:
+    """Invoca la CLI de Agent-Reach desde Python para extraer datos en vivo de YouTube o RSS."""
+    if not objetivo:
+        return "No se proporcionó URL o término de búsqueda para Agent-Reach."
+    try:
+        cmd = ["agent-reach", "run", canal, objetivo]
+        resultado = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=35,
+            encoding="utf-8",
+            errors="replace"
+        )
+        if resultado.returncode == 0 and resultado.stdout.strip():
+            return resultado.stdout.strip()
+        else:
+            out_log = resultado.stdout.strip() or resultado.stderr.strip()
+            return f"[Agent-Reach Log] {out_log if out_log else 'Ejecutado sin respuesta de texto directo.'}"
+    except subprocess.TimeoutExpired:
+        return "[Agent-Reach Error] Tiempo de espera agotado al consultar la fuente."
+    except Exception as e:
+        return f"[Agent-Reach Error] Excepción al ejecutar comando: {str(e)}"
 
 def sanitizar_texto_pdf(texto):
     texto_str = str(texto)
@@ -123,8 +153,12 @@ def crear_link_whatsapp(numero, mensaje):
     msg_encoded = urllib.parse.quote(mensaje)
     return f"https://wa.me/{num_limpio}?text={msg_encoded}"
 
-# Cargar Bases de Datos
-archivos_csv = ["clientes.csv", "finanzas.csv", "parrilla_contenidos.csv", "ads_analytics.csv", "sla_entregables.csv", "vyntara_inhouse.csv", "brandkits.csv", "vyntara_leads.csv"]
+# Cargar Bases de Datos CSV
+archivos_csv = [
+    "clientes.csv", "finanzas.csv", "parrilla_contenidos.csv", 
+    "ads_analytics.csv", "sla_entregables.csv", "vyntara_inhouse.csv", 
+    "brandkits.csv", "vyntara_leads.csv", "briefings_clientes.csv"
+]
 
 df_clientes = cargar_datos("clientes.csv", ["Nombre", "Empresa", "Redes a Manejar", "Estado", "Telefono", "Nicho"])
 df_finanzas = cargar_datos("finanzas.csv", ["Empresa", "Valor Contrato ($)", "Fecha Inicio", "Fecha Fin", "Estado Pago"])
@@ -135,9 +169,10 @@ df_entregables = cargar_datos("sla_entregables.csv", ["Cliente", "Entregable", "
 df_vyntara = cargar_datos("vyntara_inhouse.csv", ["Red_Social", "Usuario_Handle", "Seguidores", "Engagement_Rate", "Leads_Generados", "Experimento_Sandbox"])
 df_brandkits = cargar_datos("brandkits.csv", ["Cliente", "Colores_HEX", "Tipografias", "Link_Drive_Canva", "Credenciales_Redes", "Notas_Marca"])
 df_leads_vyntara = cargar_datos("vyntara_leads.csv", ["Empresa_Prospecto", "Contacto", "Telefono", "Valor_Cotizado", "Estado_Pipeline", "Notas"])
+df_briefings = cargar_datos("briefings_clientes.csv", ["Cliente", "Sector", "Objetivos", "Audiencia", "Competidores", "URL_Competidor", "Canal_Reach", "Tono", "Presupuesto", "Fecha"])
 
 # ==========================================
-# 🧭 NAVEGACIÓN PRINCIPAL
+# 🧭 NAVEGACIÓN Y MENÚ LATERAL
 # ==========================================
 st.sidebar.title("✨ Vyntara OS")
 
@@ -152,8 +187,6 @@ if st.session_state.get("api_key_activa"):
     api_key_limpia = str(st.session_state["api_key_activa"]).strip()
     try:
         genai.configure(api_key=api_key_limpia)
-        
-        # Intentar listar los modelos, si falla se usan los modelos por defecto
         try:
             modelos = [m.name for m in genai.list_models() if 'gemini' in m.name and 'generateContent' in m.supported_generation_methods]
         except Exception:
@@ -174,6 +207,7 @@ espacio_trabajo = st.sidebar.radio(
     [
         "🎛️ Torre de Control General (Finanzas & Alertas)",
         "🏢 Gestión de Clientes (Operación Individual)",
+        "🔍 Módulo C: Auditoría & Briefing Express (IA + Agent-Reach)",
         "🔥 Agencia Vyntara (Estrategia In-House)",
         "📄 Cotizador & Generador de PDF (Ventas)",
         "👁️ Portal Cliente (Aprobación Externa)",
@@ -184,13 +218,12 @@ espacio_trabajo = st.sidebar.radio(
 st.sidebar.markdown("---")
 
 # ==========================================
-# 0. NUEVO MÓDULO: TORRE DE CONTROL GENERAL (FINANZAS Y ALERTAS)
+# 0. TORRE DE CONTROL GENERAL (FINANZAS & ALERTAS)
 # ==========================================
 if espacio_trabajo == "🎛️ Torre de Control General (Finanzas & Alertas)":
     st.title("🎛️ Torre de Control General | Visión Global de la Agencia")
     st.caption("Central de monitoreo financiero, alertas operativas y estado de publicaciones de TODOS los clientes en tiempo real.")
 
-    # Cálculos globales
     if not df_finanzas.empty:
         df_finanzas["Valor_Num"] = pd.to_numeric(df_finanzas["Valor Contrato ($)"], errors="coerce").fillna(0)
         monto_pendiente = df_finanzas[df_finanzas["Estado Pago"] == "Pendiente"]["Valor_Num"].sum()
@@ -220,21 +253,17 @@ if espacio_trabajo == "🎛️ Torre de Control General (Finanzas & Alertas)":
                 nombre_emp = cli["Empresa"]
                 tel_cli = cli.get("Telefono", "573000000000")
                 
-                # Datos financieros
                 fin_cli = df_finanzas[df_finanzas["Empresa"] == nombre_emp]
                 est_pago = fin_cli["Estado Pago"].values[0] if not fin_cli.empty else "Sin Registro"
                 monto_cli = fin_cli["Valor Contrato ($)"].values[0] if not fin_cli.empty else 0
                 
-                # Datos de parrilla
                 parrilla_cli = df_parrilla[df_parrilla["Cliente"] == nombre_emp]
                 posts_pendientes = len(parrilla_cli[parrilla_cli["Estado"].isin(["💡 Idea", "✍️ Guión / Copy", "🎨 Diseño / Edición"])])
                 posts_listos = len(parrilla_cli[parrilla_cli["Estado"] == "✅ Programado"])
                 
-                # Datos SLA
                 sla_cli = df_entregables[df_entregables["Cliente"] == nombre_emp]
                 sla_pendientes = len(sla_cli[sla_cli["Estado"] != "Completado"]) if not sla_cli.empty else 0
 
-                # Badge visual
                 es_moroso = (est_pago == "Pendiente")
                 badge_pago = "🔴 COBRO PENDIENTE" if es_moroso else "🟢 PAGO AL DÍA"
                 
@@ -278,7 +307,7 @@ if espacio_trabajo == "🎛️ Torre de Control General (Finanzas & Alertas)":
                 st.rerun()
 
 # ==========================================
-# 1. MÓDULO: GESTIÓN DE CLIENTES
+# 1. GESTIÓN DE CLIENTES (OPERACIÓN INDIVIDUAL)
 # ==========================================
 elif espacio_trabajo == "🏢 Gestión de Clientes (Operación Individual)":
     lista_empresas = df_clientes["Empresa"].unique().tolist() if not df_clientes.empty else ["Sin Clientes"]
@@ -361,7 +390,6 @@ elif espacio_trabajo == "🏢 Gestión de Clientes (Operación Individual)":
 
         with tab_c1:
             st.subheader("Generación Automática de Parrilla Mensual")
-            st.caption("Crea múltiples publicaciones estratégicas listas para ser editadas o aprobadas.")
             col1, col2 = st.columns(2)
             f_in = col1.date_input("Fecha Inicio:", datetime.date.today())
             f_fi = col1.date_input("Fecha Fin:", datetime.date.today() + datetime.timedelta(days=14))
@@ -391,8 +419,6 @@ elif espacio_trabajo == "🏢 Gestión de Clientes (Operación Individual)":
 
         with tab_c2:
             st.subheader("Studio de Prompts para Imagen e Inteligencia Visual")
-            st.caption("Crea indicaciones de arte técnica en inglés optimizadas para Midjourney v6, DALL-E 3, Flux.1 o Imagen 3.")
-            
             col_pr1, col_pr2 = st.columns(2)
             engine_ia = col_pr1.selectbox("Motor Visual Objetivos:", ["Midjourney v6", "DALL-E 3", "Flux.1", "Google Imagen 3"])
             aspect_ratio = col_pr1.selectbox("Formato / Aspect Ratio:", ["1:1 (Feed Cuadrado)", "9:16 (Stories / Reels / Vertical)", "16:9 (Horizontal / Youtube/ Banner)"])
@@ -408,7 +434,6 @@ elif espacio_trabajo == "🏢 Gestión de Clientes (Operación Individual)":
 
         with tab_c3:
             st.subheader("Tablero Kanban de Estado de Producción")
-            st.caption("Monitorea la evolución de cada pieza publicitaria según su etapa del flujo de trabajo.")
             col_k1, col_k2, col_k3, col_k4 = st.columns(4)
             df_cli = df_parrilla[df_parrilla["Cliente"] == st.session_state["cliente_activo"]]
             estados_k = [("💡 Ideas / Borradores", "💡 Idea", col_k1), ("✍️ En Guión / Copy", "✍️ Guión / Copy", col_k2), ("🎨 En Diseño / Edición", "🎨 Diseño / Edición", col_k3), ("✅ Aprobado / Programado", "✅ Programado", col_k4)]
@@ -431,7 +456,6 @@ elif espacio_trabajo == "🏢 Gestión de Clientes (Operación Individual)":
 
         with tab_c4:
             st.subheader("Creador de Guiones para Reels / TikTok")
-            st.caption("Redacta estructuras completas divididas en gancho, desarrollo visual y llamado a la acción.")
             hook = st.selectbox("Ángulo o Gancho Emocional:", ["Curiosidad Disruptiva", "Problema Directo", "Error Común", "Caso de Éxito / Transformación"])
             prod = st.text_input("Producto o Oferta Central:", f"Oferta principal de {st.session_state['cliente_activo']}")
             if st.button("🚀 Redactar Guión Técnico Completo", type="primary"):
@@ -441,7 +465,6 @@ elif espacio_trabajo == "🏢 Gestión de Clientes (Operación Individual)":
 
         with tab_c5:
             st.subheader("Tabla Editora Directa de Parrilla")
-            st.caption("Modifica fechas, copys, textos de diseño o estados de forma tabular rápida.")
             df_cli = df_parrilla[df_parrilla["Cliente"] == st.session_state["cliente_activo"]]
             if not df_cli.empty:
                 df_edited = st.data_editor(df_cli, num_rows="dynamic", use_container_width=True, key="ed_p_cli")
@@ -455,7 +478,6 @@ elif espacio_trabajo == "🏢 Gestión de Clientes (Operación Individual)":
 
     elif bloque_cliente == "📦 [Brandkit] Guía de Estilo & Vault de Accesos":
         st.title(f"📦 Brandkit & Bóveda de Accesos: {st.session_state['cliente_activo']}")
-        st.caption("Almacena de forma centralizada la paleta de colores, recursos visuales, credenciales y lineamientos del cliente.")
         
         df_bk_cli = df_brandkits[df_brandkits["Cliente"] == st.session_state["cliente_activo"]]
         
@@ -477,7 +499,6 @@ elif espacio_trabajo == "🏢 Gestión de Clientes (Operación Individual)":
 
     elif bloque_cliente == "👥 [CRM & SLA] Alta de Cliente, Contrato y Entregables":
         st.title("👥 Gestión CRM, Altas y Cumplimiento de Entregables (SLA)")
-        st.caption("Administra la relación comercial, registra nuevos clientes y evalúa los tiempos de entrega.")
         
         tab_crm1, tab_crm2, tab_crm3 = st.tabs([
             "📋 Directorio General de Clientes", 
@@ -514,15 +535,158 @@ elif espacio_trabajo == "🏢 Gestión de Clientes (Operación Individual)":
 
         with tab_crm3:
             st.subheader("Cumplimiento de Entregables (SLA)")
-            st.caption("Listado de tareas pactadas y sus fechas límites contractuales.")
             st.dataframe(df_entregables[df_entregables["Cliente"] == st.session_state["cliente_activo"]], use_container_width=True)
 
 # ==========================================
-# 2. MÓDULO: AGENCIA VYNTARA IN-HOUSE
+# 2. MÓDULO C: AUDITORÍA & BRIEFING EXPRESS (INTEGRADO CON AGENT-REACH)
+# ==========================================
+elif espacio_trabajo == "🔍 Módulo C: Auditoría & Briefing Express (IA + Agent-Reach)":
+    st.title("🔍 Módulo C: Auditoría & Briefing Express")
+    st.caption("Captura requerimientos clave de prospectos, extrae inteligencia competitiva con **Agent-Reach** y genera diagnósticos FODA con Gemini.")
+
+    tab_brief, tab_auditoria, tab_historial = st.tabs([
+        "📝 1. Briefing Express", 
+        "📊 2. Auditoría Express (IA + Agent-Reach)",
+        "📁 3. Historial de Briefings"
+    ])
+
+    with tab_brief:
+        st.subheader("Formulario de Captura de Requerimientos")
+        with st.form("form_briefing_express"):
+            col1, col2 = st.columns(2)
+            with col1:
+                cliente_b = st.text_input("Nombre del Cliente / Marca *")
+                sector_b = st.text_input("Sector / Industria *")
+                presupuesto_b = st.selectbox(
+                    "Rango de Presupuesto Mensual", 
+                    ["< $500 USD", "$500 - $1,500 USD", "$1,500 - $3,000 USD", "> $3,000 USD"]
+                )
+            
+            with col2:
+                tono_b = st.multiselect(
+                    "Tono de la Marca", 
+                    ["Profesional", "Divertido", "Educativo", "Premium/Lujo", "Cercano", "Disruptivo"]
+                )
+                competidores_b = st.text_input("Nombres de Competidores Directos")
+            
+            st.markdown("---")
+            st.markdown("##### 🌐 Monitoreo Competitivo con Agent-Reach")
+            col_reach1, col_reach2 = st.columns([1, 2])
+            with col_reach1:
+                canal_reach_b = st.selectbox("Canal a monitorear con Agent-Reach:", ["youtube", "rss"])
+            with col_reach2:
+                url_competidor_b = st.text_input(
+                    "URL o canal del competidor a analizar:", 
+                    placeholder="Ej: https://www.youtube.com/@CanalCompetidor o Feed RSS del Blog"
+                )
+                
+            st.markdown("---")
+            objetivos_b = st.text_area("Objetivos Principales de la Marca")
+            audiencia_b = st.text_area("Público Objetivo / Buyer Persona")
+            
+            submitted_b = st.form_submit_button("💾 Guardar Briefing")
+            
+            if submitted_b:
+                if cliente_b and sector_b:
+                    nuevo_brief = pd.DataFrame([{
+                        "Cliente": cliente_b,
+                        "Sector": sector_b,
+                        "Objetivos": objetivos_b,
+                        "Audiencia": audiencia_b,
+                        "Competidores": competidores_b,
+                        "URL_Competidor": url_competidor_b,
+                        "Canal_Reach": canal_reach_b,
+                        "Tono": ", ".join(tono_b),
+                        "Presupuesto": presupuesto_b,
+                        "Fecha": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                    }])
+                    df_briefings = pd.concat([df_briefings, nuevo_brief], ignore_index=True)
+                    guardar_datos("briefings_clientes.csv", df_briefings)
+                    st.success(f"✅ Briefing de **{cliente_b}** guardado con éxito.")
+                    st.rerun()
+                else:
+                    st.error("Por favor completa los campos obligatorios (*).")
+
+    with tab_auditoria:
+        st.subheader("Generación Automática de Auditoría de Marca")
+        
+        if df_briefings.empty:
+            st.info("No hay briefings registrados aún. Por favor completa la pestaña 'Briefing Express'.")
+        else:
+            cliente_sel_aud = st.selectbox("Selecciona la marca para auditar:", df_briefings["Cliente"].unique())
+            datos_brief_cli = df_briefings[df_briefings["Cliente"] == cliente_sel_aud].iloc[-1].to_dict()
+            
+            st.info(f"**Marca:** {datos_brief_cli['Cliente']} | **Sector:** {datos_brief_cli['Sector']} | **Canal Agent-Reach:** {datos_brief_cli.get('Canal_Reach', 'youtube')}")
+            
+            if st.button("🚀 Ejecutar Agent-Reach & Generar Auditoría con IA", type="primary"):
+                # 1. Extracción en tiempo real mediante Agent-Reach
+                with st.spinner(f"🔎 Extrayendo datos en vivo con Agent-Reach ({datos_brief_cli.get('Canal_Reach', 'youtube')})..."):
+                    target_url = datos_brief_cli.get("URL_Competidor", "")
+                    if target_url:
+                        reach_output = obtener_datos_agent_reach(datos_brief_cli.get("Canal_Reach", "youtube"), target_url)
+                    else:
+                        reach_output = "No se especificó URL de competidor en el briefing. Se realizará análisis basado en sector."
+                
+                with st.expander("👀 Ver raw data extraída por Agent-Reach"):
+                    st.code(reach_output[:1500] + ("..." if len(reach_output) > 1500 else ""))
+
+                # 2. Análisis y generación estratégica con Gemini
+                with st.spinner("🤖 Generando diagnóstico competitivo y matriz FODA con Gemini..."):
+                    prompt_auditoria = f"""
+                    Actúa como un Director de Estrategia Digital Senior. Genera una Auditoría Express completa y detallada para la siguiente marca y su contexto competitivo.
+
+                    --- BRIEFING DE LA MARCA ---
+                    - Marca: {datos_brief_cli['Cliente']}
+                    - Sector: {datos_brief_cli['Sector']}
+                    - Objetivos: {datos_brief_cli['Objetivos']}
+                    - Audiencia: {datos_brief_cli['Audiencia']}
+                    - Competidores Directos: {datos_brief_cli['Competidores']}
+                    - Tono de Marca: {datos_brief_cli['Tono']}
+
+                    --- DATOS OBTENIDOS DE LA COMPETENCIA (Agent-Reach: {datos_brief_cli.get('Canal_Reach', 'N/A')}) ---
+                    {reach_output[:2000]}
+
+                    --- ESTRUCTURA DE LA AUDITORÍA (Formato Markdown obligatorio) ---
+                    ## 🎯 1. Diagnóstico de Marca & Brecha Competitiva
+                    (Análisis crítico de posicionamiento con respecto a la competencia analizada)
+
+                    ## 📊 2. Matriz SWOT / FODA
+                    | Fortalezas | Oportunidades |
+                    | --- | --- |
+                    | ... | ... |
+                    | **Debilidades** | **Amenazas** |
+                    | ... | ... |
+
+                    ## 💡 3. Pilares de Contenido Diferenciadores
+                    - Proponer 4 pilares tácticos de contenido de alto impacto.
+
+                    ## ⚡ 4. Plan de Acción Inmediato (Quick Wins)
+                    - 3 a 5 acciones de implementación prioritaria para los primeros 30 días.
+                    """
+                    
+                    try:
+                        res_auditoria = consultar_gemini(prompt_auditoria, modelo_seleccionado).text
+                        st.markdown("---")
+                        st.markdown(res_auditoria)
+                        
+                        st.download_button(
+                            label="📥 Descargar Reporte de Auditoría (.md)",
+                            data=res_auditoria,
+                            file_name=f"Auditoria_{datos_brief_cli['Cliente']}.md",
+                            mime="text/markdown"
+                        )
+                    except Exception as e:
+                        st.error(f"Error generando la auditoría: {e}")
+
+    with tab_historial:
+        st.subheader("Base de Datos de Briefings Registrados")
+        st.dataframe(df_briefings, use_container_width=True)
+
+# ==========================================
+# 3. AGENCIA VYNTARA (ESTRATEGIA IN-HOUSE)
 # ==========================================
 elif espacio_trabajo == "🔥 Agencia Vyntara (Estrategia In-House)":
     st.title("🔥 Agencia Vyntara Digital | Módulo de Crecimiento Propio")
-    st.caption("Gestiona la estrategia de marketing, generación de contenido y captación de clientes de la propia agencia.")
 
     menu_vyntara = st.sidebar.radio("Sección Vyntara:", [
         "🤖 [Parrilla Vyntara] Contenido Automático",
@@ -602,7 +766,7 @@ elif espacio_trabajo == "🔥 Agencia Vyntara (Estrategia In-House)":
         st.dataframe(df_vyntara, use_container_width=True)
 
 # ==========================================
-# 3. MÓDULO: COTIZADOR & PROPUESTAS PDF
+# 4. COTIZADOR & GENERADOR DE PDF (VENTAS)
 # ==========================================
 elif espacio_trabajo == "📄 Cotizador & Generador de PDF (Ventas)":
     st.title("📄 Cotizador Inteligente & Creador de Propuestas PDF")
@@ -673,7 +837,7 @@ elif espacio_trabajo == "📄 Cotizador & Generador de PDF (Ventas)":
         col_desc2.markdown(f'[![Enviar por WhatsApp](https://img.shields.io/badge/Enviar_Cotizacion-WhatsApp-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)]({link_wa})')
 
 # ==========================================
-# 4. MÓDULO: VISTA CLIENTE
+# 5. PORTAL CLIENTE (APROBACIÓN EXTERNA)
 # ==========================================
 elif espacio_trabajo == "👁️ Portal Cliente (Aprobación Externa)":
     st.title("👁️ Portal de Revisión y Aprobación de Clientes")
@@ -716,7 +880,7 @@ elif espacio_trabajo == "👁️ Portal Cliente (Aprobación Externa)":
             st.info("No hay contenidos asignados actualmente para este cliente.")
 
 # ==========================================
-# 5. MÓDULO: CONFIGURACIÓN GLOBAL & BACKUPS
+# 6. CONFIGURACIÓN GLOBAL & BACKUPS
 # ==========================================
 elif espacio_trabajo == "⚙️ Configuración Global & Copias de Seguridad":
     st.title("⚙️ Ajustes del Sistema & Centro de Respaldos")
