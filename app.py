@@ -1092,13 +1092,13 @@ elif espacio_trabajo == "👁️ Portal Cliente (Aprobación Externa)":
                 cliente_sel = st.selectbox("📌 Selecciona un cliente para previsualizar su portal:", lista_clientes)
             
             with col_admin2:
-                # 1. Reemplazar espacios para formar el parámetro de la URL
+                # 1. Preparar el nombre del cliente para la dirección web
                 cliente_encode = cliente_sel.replace(" ", "%20")
                 
-                # 2. Reemplaza "TU-APP-REAL.streamlit.app" con la URL exactita de tu navegador
-                # Ejemplo: https://vyntara-os.streamlit.app
-                url_base = "https://TU-APP-REAL.streamlit.app" 
+                # 2. Tu URL real y oficial del sistema Vyntara OS
+                url_base = "https://vyntara-os-alddkcpncvqdtpsww6qge.streamlit.app"
                 
+                # 3. Construcción del enlace privado
                 link_cliente = f"{url_base}/?cliente={cliente_encode}"
                 
                 st.markdown("**🔗 Enlace Privado para enviar al cliente:**")
